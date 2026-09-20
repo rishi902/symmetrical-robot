@@ -1,0 +1,65 @@
+# --- Data (never commit, files are large and the dataset is on Kaggle) ---
+data/*
+!data/.gitkeep
+*.csv
+*.parquet
+*.zip
+
+# --- Models and study files ---
+models/
+*.pkl
+*.joblib
+*.json.model
+*.ubj
+*.db
+*.sqlite3
+
+# --- Secrets ---
+kaggle.json
+.env
+.env.*
+*.key
+secrets/
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# --- Virtual environments ---
+venv/
+.venv/
+env/
+.conda/
+
+# --- Jupyter ---
+.ipynb_checkpoints/
+*/.ipynb_checkpoints/*
+profile_default/
+ipython_config.py
+
+# --- Testing and linting ---
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# --- Editors and OS ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# --- Streamlit ---
+.streamlit/secrets.toml
+
+# --- Keep results that are small enough to commit ---
+# Figures, metrics and benchmark CSVs ARE committed so the README can show them.
+!results/
+!results/**
