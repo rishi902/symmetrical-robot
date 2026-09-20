@@ -1,0 +1,115 @@
+# Project settings for the AML detection project.
+# Everything that might change lives here, so no settings are hidden inside the code.
+
+project:
+  name: aml-detection
+  random_seed: 42
+
+paths:
+  raw_dir: data/raw
+  processed_dir: data/processed
+  raw_file: data/raw/HI-Small_Trans.csv
+  patterns_file: data/raw/HI-Small_Patterns.txt
+  clean_file: data/processed/transactions_clean.parquet
+  features_dir: data/processed
+  models_dir: models
+  figures_dir: results/figures
+  metrics_dir: results/metrics
+  benchmarks_dir: results/benchmarks
+
+runtime:
+  # Set to true only when running in Colab with a GPU (RAPIDS / XGBoost CUDA).
+  use_gpu: false
+  # Fraction of rows to use while developing. Set to 1.0 for the full run.
+  sample_frac: 0.05
+  # Keep chronological order when sampling (do not sample randomly across time).
+  sample_mode: head
+  n_jobs: -1
+
+split:
+  # Time-based split. The data is sorted by timestamp first, then cut by position.
+  train_frac: 0.6
+  val_frac: 0.2
+  test_frac: 0.2
+
+cleaning:
+  drop_exact_duplicates: true
+  drop_self_transfers: false      # keep them, but add a flag feature
+  amount_min: 0.0
+  base_currency: USD
+  # Exchange rates are inferred from rows where paid and received currencies differ.
+  infer_exchange_rates: true
+
+features:
+  # Rolling windows for account behaviour features, in days.
+  windows_days: [1, 7, 30]
+  include_graph_features: true
+  graph_features:
+    - in_degree
+    - out_degree
+    - unique_senders
+    - unique_receivers
+    - total_in_amount
+    - total_out_amount
+    - pagerank
+  pagerank_alpha: 0.85
+
+model:
+  type: xgboost
+  imbalance_method: scale_pos_weight   # options: none, scale_pos_weight, undersample
+  undersample_ratio: 10                # normal:laundering ratio if undersampling
+  baseline_params:
+    n_estimators: 300
+    max_depth: 6
+    learning_rate: 0.1
+    subsample: 1.0
+    colsample_bytree: 1.0
+  early_stopping_rounds: 50
+
+tuning:
+  n_trials: 50
+  timeout_minutes: 60
+  direction: maximize
+  metric: pr_auc                       # options: pr_auc, business_cost
+  sampler: tpe
+  pruner: median
+  study_name: xgb_aml
+  storage: sqlite:///results/metrics/optuna_study.db
+  search_space:
+    max_depth: [3, 12]
+    learning_rate: [0.01, 0.3]         # log scale
+    n_estimators: [200, 1500]
+    min_child_weight: [1, 20]
+    subsample: [0.5, 1.0]
+    colsample_bytree: [0.5, 1.0]
+    gamma: [0.0, 5.0]
+    reg_alpha: [0.0, 10.0]
+    reg_lambda: [0.0, 10.0]
+    scale_pos_weight: [1, 200]         # log scale
+
+evaluation:
+  primary_metric: pr_auc
+  fixed_fpr: 0.01                      # report recall at this false positive rate
+  threshold_selection: business_cost   # options: business_cost, f1, fixed_fpr
+  # ASSUMPTIONS, not real bank figures. State this clearly in the README.
+  costs:
+    false_negative_usd: 5000           # cost of missing a laundering transaction
+    false_positive_usd: 25             # cost of an analyst reviewing a false alert
+
+explainability:
+  shap_sample_size: 5000
+  n_local_examples: 5
+
+benchmark:
+  repeats: 3
+  steps:
+    - load_and_clean
+    - feature_engineering
+    - graph_features
+    - model_training
+    - tuning_trials
+  tuning_trials_for_benchmark: 10
+
+dashboard:
+  sample_rows: 50000
+  default_threshold: 0.5
