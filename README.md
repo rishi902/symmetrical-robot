@@ -38,7 +38,31 @@ flowchart LR
 
 ## Data cleaning
 
-<!-- TODO after Phase 1: what was found, what was changed, row counts before and after -->
+Full findings and every decision are in `results/metrics/cleaning_report.md` (regenerated each time
+`python -m src.data_cleaning` runs). Summary, based on the 5% development sample
+(`sample_frac` in `config.yaml`; results will change once the full dataset is used):
+
+- Started from 253,917 sampled rows (5,078,345 in the full raw file), 0 exact duplicates and 0
+  invalid (zero/negative) amounts in this sample, so no rows were dropped in this particular run.
+- Account numbers turned out to be unique across banks in this sample (no from_bank/from_account
+  collisions found), but `from_id`/`to_id` (bank + account) are kept anyway since the dataset docs
+  say collisions are possible elsewhere in the full file.
+- 72.9% of rows are self-transfers (same account on both sides). This looked alarming at first, so
+  it was checked by payment format rather than accepted as-is: `Reinvestment` is 100.0%
+  self-transfers and `Bitcoin` is 74.0%, while genuine transfers between different accounts
+  (`Cash`, `Wire`, `Cheque`, `Credit Card`, `ACH`) are almost never self-transfers (0.2%-8.1%).
+  So the high rate is explained by these two formats, not a data error. Self-transfers are kept
+  (not dropped) and flagged with an `is_self_transfer` column.
+- Currency conversion: exchange rates to USD are inferred from the data itself (see
+  `src/data_cleaning.py: infer_exchange_rates`), since no fixed rate table is provided. Rates
+  based on few supporting rows (e.g. Bitcoin: 19 rows, Saudi Riyal: 9 rows) are flagged as low
+  confidence in the report rather than presented with the same certainty as well-supported ones
+  (Euro: 320 rows). A sanity check comparing the converted paid vs. received amount showed a
+  0.00% median difference, which is the result expected if the inferred rates are consistent.
+- Extreme amounts are **not** removed (max seen: ~$5.35 billion in a single transaction, clearly
+  unrealistic for a real bank but the dataset is synthetic). Deleting large or unusual amounts
+  risks throwing away exactly the kind of signal we're trying to detect. Skew is instead handled
+  later with a log-amount feature.
 
 ## Key findings from EDA
 
