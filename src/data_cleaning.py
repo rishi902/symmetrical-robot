@@ -148,8 +148,13 @@ def infer_exchange_rates(df: pd.DataFrame) -> tuple[dict, str]:
 
         rate = float(ratios.median())
         rates[currency] = rate
+        # A rate estimated from only a handful of rows is much less trustworthy
+        # than one backed by hundreds. Flag it instead of presenting every
+        # rate with the same confidence.
+        low_confidence_note = " (LOW CONFIDENCE: fewer than 30 supporting rows)" if len(ratios) < 30 else ""
         lines.append(
-            f"  {currency}: rate={rate:.6f}, based on {len(ratios):,} rows, std={ratios.std():.6f}"
+            f"  {currency}: rate={rate:.6f}, based on {len(ratios):,} rows, "
+            f"std={ratios.std():.6f}{low_confidence_note}"
         )
 
     return rates, "\n".join(lines)
@@ -219,11 +224,19 @@ def clean_data(config: dict) -> tuple[pd.DataFrame, str]:
     if not cleaning_cfg["drop_self_transfers"]:
         df["is_self_transfer"] = df["from_id"] == df["to_id"]
         n_self = int(df["is_self_transfer"].sum())
+
+        # Break the self-transfer rate down by payment_format. A high overall
+        # rate is only trustworthy if we can see WHICH format is driving it,
+        # rather than just accepting the headline number.
+        format_breakdown = df.groupby("payment_format", observed=True)["is_self_transfer"].mean().sort_values(ascending=False)
+        format_lines = "\n".join(f"  {fmt}: {rate:.1%} self-transfers" for fmt, rate in format_breakdown.items())
+
         report.append(
             "## Self-transfers\n\n"
             f"{n_self:,} rows ({n_self / len(df):.2%}) are self-transfers (same account on both sides). "
             "Kept (not dropped) and flagged with a new is_self_transfer column, since this is a "
-            "real account behaviour pattern, not a data error."
+            "real account behaviour pattern, not a data error.\n\n"
+            f"Self-transfer rate by payment_format:\n{format_lines}"
         )
         report.append("")
 
