@@ -66,7 +66,29 @@ Full findings and every decision are in `results/metrics/cleaning_report.md` (re
 
 ## Key findings from EDA
 
-<!-- TODO after Phase 2: 3 to 5 plain-language findings plus 2 to 3 charts -->
+Full details and all 8 charts are in `notebooks/02_eda.ipynb` and `results/figures/`.
+Based on a development sample of 467,083 rows (5% of accounts, plus every transaction
+touching them, across the full 18-day time range -- see "Data cleaning" above for why
+accounts are sampled this way instead of by row count):
+
+1. **Laundering is extremely rare: 0.098% of transactions (459 of 467,083).** This is why
+   accuracy won't be used as the main metric later -- always predicting "normal" would score
+   99.9% accuracy while catching zero laundering.
+2. **Laundering amounts cluster tightly in a specific range** (roughly \$3,000-\$30,000),
+   while normal transaction amounts are spread much more broadly and skew smaller.
+3. **ACH payments have a laundering rate about 10x higher than any other format** (0.72%,
+   vs 0.07% for Bitcoin, the next highest), though this is based on still-modest counts.
+4. **A few high-activity "hub" accounts, not typical activity levels, separate
+   laundering-involved accounts from others** -- the median transaction count is the same
+   for both groups, but a handful of laundering-involved accounts are far more active than
+   any normal account in the sample.
+5. **The known laundering patterns (`HI-Small_Patterns.txt`) are structurally complex**:
+   the most common are BIPARTITE, SCATTER-GATHER, and STACK -- multi-hop, multi-account
+   structures, not just one account with unusually many counterparties.
+
+| Class imbalance | Amount distribution | Laundering rate by format |
+|---|---|---|
+| ![Class imbalance](results/figures/01_class_imbalance.png) | ![Amount distribution](results/figures/04_amount_distribution.png) | ![Laundering rate by format](results/figures/02_laundering_rate_by_format.png) |
 
 ## Features
 
