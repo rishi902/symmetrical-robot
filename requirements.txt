@@ -11,6 +11,7 @@ lightgbm>=4.0
 
 # Tuning
 optuna>=3.5
+optuna-integration[xgboost]>=3.5   # XGBoostPruningCallback moved out of the main optuna package
 
 # Explainability
 shap>=0.44
