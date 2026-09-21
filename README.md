@@ -92,17 +92,53 @@ accounts are sampled this way instead of by row count):
 
 ## Features
 
-<!-- TODO after Phase 3 -->
+All feature logic lives in `src/features.py` (transaction + account behaviour) and
+`src/graph_features.py` (graph). See `notebooks/03_feature_engineering.ipynb` for the full
+walkthrough and the leakage checks below run against the real data.
 
-**Transaction features:**
+**Transaction features:** amount in USD, log amount (handles the huge range of amounts --
+see Phase 1/2), hour of day, day of week, a cross-currency flag, a cross-bank flag.
 
-**Account behaviour features (past data only):**
+**Account behaviour features (past data only):** for the account sending the money --
+number of transactions sent and received in the last 1 / 7 days, average and max amount
+sent recently, number of unique counterparties sent to recently, this transaction's amount
+compared to the account's own all-time average ("usual amount" ratio), and time since the
+account's previous transaction. Every one of these only looks at that account's
+transactions strictly *before* the current one.
 
-**Graph features:**
+**Graph features:** built with `networkx` on a directed, amount-weighted account network --
+in-degree and out-degree (fan-in / fan-out: how many different accounts sent to / received
+from this account), total money in vs out, and PageRank (how "central" an account is in the
+money-flow network). Attached for both the sender and receiver of each transaction.
 
 ### Avoiding data leakage
 
-<!-- TODO after Phase 3: explain the time-based split and why no future data is used -->
+Data leakage is when a feature accidentally contains information that wouldn't actually
+exist yet at the moment a real prediction is made. Concrete example: a feature like
+"average amount this account usually sends" computed using *all* of an account's
+transactions -- including ones from days after the transaction being predicted -- would let
+the model see the future. It would look great in testing, then get quietly worse in the
+real world, where that future information doesn't exist yet.
+
+This is handled two ways:
+
+1. **Time-based split, not random.** The data is sorted by timestamp, then cut by row
+   position into train (first 60%), validation (next 20%), test (last 20%) --
+   train: 280,249 rows (Sept 1 - Sept 6), val: 93,416 rows (Sept 6 - Sept 8),
+   test: 93,418 rows (Sept 8 - Sept 18).
+2. **Every account behaviour feature only uses that account's transactions strictly before
+   the current one.** This matters more than it might sound: this dataset only has
+   minute-level timestamp precision, and a lot of transactions share the exact same minute
+   (see Phase 2's EDA), so "strictly before" is enforced on the timestamp *value*, not row
+   order -- two transactions in the same minute never count as "the past" for each other.
+
+This isn't just claimed -- it's tested directly in the notebook, against the real data,
+two ways:
+- An independent, separately-written brute-force recount of `sent_count_7d` for 300 random
+  rows, matching the actual implementation with **0 mismatches**.
+- Corrupting every transaction amount in the second half of the dataset (the "future"
+  relative to the first half) and confirming **0 rows** in the first half had any feature
+  change as a result.
 
 ## Results
 
