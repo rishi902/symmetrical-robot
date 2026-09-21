@@ -8,10 +8,16 @@ covering all three, rather than three separate 50-trial studies (which could
 take up to 3x as long for the same answer, since Optuna's sampler naturally
 spends more trials on whichever method tends to score better).
 
-Every trial only uses TRAIN (to fit) and VALIDATION (to score). Test is
-never loaded in this file -- see retrain_best_and_evaluate_once(), the only
-function in the whole project that's allowed to touch it, and only ever
-called once, at the very end.
+Every Optuna trial only uses TRAIN (to fit) and VALIDATION (to score) --
+test is never touched while any model/hyperparameter decision is still
+being made. Two functions near the bottom of this file DO load test, each
+exactly once, purely to REPORT how an already-fully-decided model performs:
+retrain_best_and_evaluate_once() (the tuned model) and
+evaluate_baseline_on_test() (the Phase 4 baseline, re-evaluated on test
+instead of validation so the before/after comparison in the README is
+apples-to-apples). Neither one feeds back into choosing a model or
+hyperparameters -- that's what makes reporting two numbers on test still
+consistent with "test is touched once for real decision-making".
 
 Run from the project root, with the virtual environment active:
     python -m src.tune
@@ -27,7 +33,7 @@ from optuna_integration import XGBoostPruningCallback
 
 from src.config import load_config
 from src.evaluate import evaluate_model, pr_auc, save_metrics
-from src.train import TARGET_COL, load_feature_tables, prepare_xgb_data
+from src.train import TARGET_COL, load_feature_tables, prepare_xgb_data, train_xgboost
 
 
 def undersample_majority(train_df: pd.DataFrame, ratio: float, seed: int) -> pd.DataFrame:
@@ -169,12 +175,29 @@ def retrain_best_and_evaluate_once(
     train_df: pd.DataFrame, val_df: pd.DataFrame, test_df: pd.DataFrame, best_params: dict, config: dict
 ) -> dict:
     """
-    THE ONLY function in this whole project allowed to look at the test set,
-    and only ever called once. Retrains with the tuned hyperparameters
-    (chosen using train+val only, in run_study() above) and reports test
-    metrics for the first and only time.
+    Retrains with the tuned hyperparameters (chosen using train+val only, in
+    run_study() above) and reports test metrics. Call this once.
     """
     model = retrain_with_best_params(train_df, val_df, best_params, config)
+    X_test = prepare_xgb_data(test_df)
+    y_test = test_df[TARGET_COL]
+    test_scores = model.predict_proba(X_test)[:, 1]
+    return evaluate_model(y_test, test_scores, config)
+
+
+def evaluate_baseline_on_test(
+    train_df: pd.DataFrame, val_df: pd.DataFrame, test_df: pd.DataFrame, config: dict
+) -> dict:
+    """
+    Re-evaluates the Phase 4 baseline XGBoost (same default, untuned
+    hyperparameters -- config.yaml: model.baseline_params, no imbalance
+    handling) on TEST instead of validation, so the before/after comparison
+    is measured on the SAME dataset as the tuned model. Phase 4 only ever
+    reported this model's validation performance; this does not change the
+    model itself in any way, it only reports a second, comparable number
+    for an already fully-decided model.
+    """
+    model = train_xgboost(train_df, val_df, config)
     X_test = prepare_xgb_data(test_df)
     y_test = test_df[TARGET_COL]
     test_scores = model.predict_proba(X_test)[:, 1]
@@ -197,15 +220,28 @@ def main() -> None:
     print("\nImbalance method comparison (best PR-AUC per method across all trials):")
     print(summarize_imbalance_methods(study))
 
-    # Test set loaded here for the first and only time in the whole project.
+    # Test set loaded here for the first time in the whole project, purely
+    # to report already-decided models -- see the module docstring.
     features_dir = Path(config["paths"]["features_dir"])
     test_df = pd.read_parquet(features_dir / "test_features.parquet")
 
-    print("\nRetraining with best params and evaluating on TEST (once, final check)...")
+    print("\nRetraining with best params and evaluating on TEST (final check)...")
     test_metrics = retrain_best_and_evaluate_once(train_df, val_df, test_df, study.best_params, config)
     print(test_metrics)
 
-    save_metrics({"xgboost_tuned_test": test_metrics, "best_params": study.best_params}, config, filename="tuned.json")
+    print("\nRe-evaluating the Phase 4 baseline on TEST too, for a fair before/after comparison...")
+    baseline_test_metrics = evaluate_baseline_on_test(train_df, val_df, test_df, config)
+    print(baseline_test_metrics)
+
+    save_metrics(
+        {
+            "xgboost_tuned_test": test_metrics,
+            "xgboost_baseline_test": baseline_test_metrics,
+            "best_params": study.best_params,
+        },
+        config,
+        filename="tuned.json",
+    )
     print(f"\nSaved to {Path(config['paths']['metrics_dir']) / 'tuned.json'}")
 
 
