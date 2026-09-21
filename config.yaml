@@ -20,10 +20,16 @@ paths:
 runtime:
   # Set to true only when running in Colab with a GPU (RAPIDS / XGBoost CUDA).
   use_gpu: false
-  # Fraction of rows to use while developing. Set to 1.0 for the full run.
+  # Fraction to sample while developing. Set to 1.0 for the full run.
   sample_frac: 0.05
-  # Keep chronological order when sampling (do not sample randomly across time).
-  sample_mode: head
+  # accounts: pick this fraction of ACCOUNTS at random, keep every transaction
+  #   touching one of them, so each included account has its full history
+  #   across the whole time range (needed for the rolling time-window
+  #   features in Phase 3). head: take the first sample_frac of ROWS in
+  #   chronological order instead -- simpler, but this dataset is extremely
+  #   front-loaded in time (see results/metrics/cleaning_report.md), so a
+  #   small head sample ends up covering only a few minutes. Default: accounts.
+  sample_mode: accounts
   n_jobs: -1
 
 split:
