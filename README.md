@@ -142,13 +142,30 @@ two ways:
 
 ## Results
 
-<!-- TODO after Phase 5 -->
+<!-- XGBoost (tuned) row is added after Phase 5 -->
+
+All numbers below are on the validation set, with default (unweighted, untuned) model
+settings -- see `results/metrics/baseline.json` and `notebooks/04_baseline_model.ipynb`.
+Business cost uses the threshold that minimises it on validation for each model.
 
 | Model | PR-AUC | ROC-AUC | Precision | Recall | F1 | Business cost |
 |---|---|---|---|---|---|---|
-| Logistic regression | | | | | | |
-| XGBoost (default) | | | | | | |
+| Logistic regression | 0.029 | 0.955 | 0.020 | 0.693 | 0.039 | $208,900 |
+| XGBoost (default) | 0.261 | 0.982 | 0.032 | 0.830 | 0.062 | $129,550 |
 | XGBoost (tuned) | | | | | | |
+
+Both models were pushed toward flagging aggressively (low precision, higher recall) because
+the cost of missing a laundering case ($5,000, assumed) is 200x the cost of a false alert
+($25, assumed) -- so the cost-minimising threshold accepts a lot of false alarms rather than
+risk missing real cases. Whether that trade-off is right is a business decision, not
+something the model decides alone.
+
+XGBoost clearly outperforms logistic regression: PR-AUC is 9x higher and business cost is
+~38% lower. Notice the gap between each model's ROC-AUC (0.96-0.98, both look almost
+perfect) and PR-AUC (0.03-0.26, much less flattering) -- this is the ROC-AUC-vs-PR-AUC
+issue explained earlier made concrete: ROC-AUC looks great mostly because it's easy to
+correctly rank the huge number of obvious normal transactions, not because either model is
+actually finding laundering reliably.
 
 Business cost uses assumed figures (see `config.yaml`): missing a laundering transaction is
 treated as far more expensive than reviewing a false alert. These are assumptions for
