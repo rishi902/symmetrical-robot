@@ -86,6 +86,25 @@ def make_unique_account_ids(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def sample_by_accounts(df: pd.DataFrame, frac: float, seed: int) -> pd.DataFrame:
+    """
+    Sample a random subset of accounts, then keep every transaction that
+    touches at least one of them (as sender OR receiver) -- not just
+    transactions between two sampled accounts. This keeps each sampled
+    account's real neighbourhood intact (its actual counterparties, in-degree,
+    out-degree), instead of artificially cutting it off from the rest of the
+    network, which would understate its connectivity for Phase 3's graph
+    features.
+    """
+    all_accounts = pd.unique(pd.concat([df["from_id"], df["to_id"]]))
+    rng = np.random.default_rng(seed)
+    n_keep = int(len(all_accounts) * frac)
+    sampled_accounts = set(rng.choice(all_accounts, size=n_keep, replace=False))
+
+    mask = df["from_id"].isin(sampled_accounts) | df["to_id"].isin(sampled_accounts)
+    return df[mask].reset_index(drop=True)
+
+
 def check_account_id_collision(df: pd.DataFrame) -> str:
     """
     Check whether account numbers actually do collide across banks, to see
@@ -177,22 +196,40 @@ def clean_data(config: dict) -> tuple[pd.DataFrame, str]:
     df["timestamp"] = pd.to_datetime(df["timestamp"])
     df = df.sort_values("timestamp").reset_index(drop=True)
 
-    # Develop on a smaller, chronologically-contiguous slice while the
-    # pipeline is being built (see runtime.sample_frac in config.yaml).
-    # We take the EARLIEST rows, not a random sample, so we don't fake up
-    # relationships between rows that were never actually adjacent in time.
-    sample_frac = runtime_cfg["sample_frac"]
-    if sample_frac < 1.0:
-        if runtime_cfg["sample_mode"] != "head":
-            raise NotImplementedError(f"sample_mode={runtime_cfg['sample_mode']!r} is not implemented")
-        n_keep = int(len(df) * sample_frac)
-        df = df.head(n_keep).reset_index(drop=True)
-        report.append(f"Sampled to {sample_frac:.0%} of rows ({n_keep:,} rows), taken from the start (sample_mode=head).")
-        report.append("")
-
+    # Account ids are built here, BEFORE sampling, because account-based
+    # sampling (below) needs them to decide which rows to keep.
     df = make_unique_account_ids(df)
     report.append(check_account_id_collision(df))
     report.append("")
+
+    # Develop on a smaller slice while the pipeline is being built (see
+    # runtime.sample_frac / sample_mode in config.yaml).
+    sample_frac = runtime_cfg["sample_frac"]
+    if sample_frac < 1.0:
+        sample_mode = runtime_cfg["sample_mode"]
+        if sample_mode == "accounts":
+            before = len(df)
+            df = sample_by_accounts(df, sample_frac, seed=config["project"]["random_seed"])
+            report.append(
+                f"Sampled to {sample_frac:.0%} of accounts, keeping every transaction that touches "
+                f"one of them ({before:,} -> {len(df):,} rows, sample_mode=accounts). This is done "
+                "instead of taking the first N% of rows because this dataset is extremely "
+                "front-loaded in time (99.98% of transactions happen in the first 10 of 18 days -- "
+                "see the EDA notebook), so a row-count sample would only cover a few minutes and "
+                "give every account a near-empty history. Sampling by account instead means every "
+                "included account keeps its FULL history across the whole time range, which the "
+                "time-window features in Phase 3 need."
+            )
+        elif sample_mode == "head":
+            # Take the EARLIEST rows, not a random sample, so we don't fake up
+            # relationships between rows that were never actually adjacent in time.
+            # Kept as an option, but see the note above on why "accounts" is the default.
+            n_keep = int(len(df) * sample_frac)
+            df = df.head(n_keep).reset_index(drop=True)
+            report.append(f"Sampled to {sample_frac:.0%} of rows ({n_keep:,} rows), taken from the start (sample_mode=head).")
+        else:
+            raise NotImplementedError(f"sample_mode={sample_mode!r} is not implemented")
+        report.append("")
 
     # --- Exact duplicates ---
     if cleaning_cfg["drop_exact_duplicates"]:
